@@ -13,12 +13,18 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Debug OIDC claims
+        uses: github/actions-oidc-debugger@main
+        with:
+          audience: sts.amazonaws.com
+
       - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v3
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::039473174687:role/GITAWSrole
           aws-region: us-east-1
@@ -38,30 +44,38 @@ jobs:
             echo "Staging bucket already exists"
           else
             echo "Creating staging bucket $STAGING_BUCKET"
+
             if [ "$AWS_REGION" = "us-east-1" ]; then
               aws s3api create-bucket --bucket "$STAGING_BUCKET"
             else
-              aws s3api create-bucket --bucket "$STAGING_BUCKET" --create-bucket-configuration LocationConstraint="$AWS_REGION"
+              aws s3api create-bucket \
+                --bucket "$STAGING_BUCKET" \
+                --create-bucket-configuration LocationConstraint="$AWS_REGION"
             fi
           fi
 
       - name: Upload artifacts to staging bucket
         run: |
           STAGING_BUCKET="lambda-glue-repo-staging-bucket"
-          aws s3 cp artifacts/lambda-package.zip s3://${STAGING_BUCKET}/lambda/package.zip
-          aws s3 cp glue/job.py s3://${STAGING_BUCKET}/glue/job.py
+
+          aws s3 cp artifacts/lambda-package.zip \
+            s3://${STAGING_BUCKET}/lambda/package.zip
+
+          aws s3 cp glue/job.py \
+            s3://${STAGING_BUCKET}/glue/job.py
 
       - name: Deploy CloudFormation stack
+        env:
+          STACK_NAME: lambda-glue-stack
         run: |
           STAGING_BUCKET="lambda-glue-repo-staging-bucket"
+
           aws cloudformation deploy \
             --template-file cloudformation/template.yaml \
-            --stack-name ${STACK_NAME:-lambda-glue-stack} \
+            --stack-name "$STACK_NAME" \
             --parameter-overrides \
-              LambdaCodeS3Bucket=${STAGING_BUCKET} \
+              LambdaCodeS3Bucket="$STAGING_BUCKET" \
               LambdaCodeS3Key=lambda/package.zip \
               GlueJobScriptS3Uri=s3://${STAGING_BUCKET}/glue/job.py \
             --capabilities CAPABILITY_IAM \
             --no-fail-on-empty-changeset
-        env:
-          STACK_NAME: lambda-glue-stack
