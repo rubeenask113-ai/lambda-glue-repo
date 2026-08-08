@@ -23,10 +23,11 @@ This repository deploys an AWS pipeline with:
 
 ## Required GitHub secrets
 
-Add these secrets to your repository settings:
-- `AWS_OIDC_ROLE_ARN` - IAM role ARN that GitHub Actions can assume via OIDC
-- `AWS_REGION` - AWS region to deploy into
-- `CFN_STAGING_BUCKET` - existing S3 bucket for packaging code and Glue script
+This repo no longer requires GitHub secrets for deployment because the workflow hardcodes the OIDC role ARN, AWS region, and staging bucket.
+
+- `AWS_OIDC_ROLE_ARN` is hardcoded in `.github/workflows/deploy.yml`
+- `AWS_REGION` is hardcoded as `us-east-1`
+- `CFN_STAGING_BUCKET` is hardcoded as `lambda-glue-repo-staging-bucket`
 
 ## AWS IAM role setup
 
