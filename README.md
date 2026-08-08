@@ -31,7 +31,7 @@ This repo no longer requires GitHub secrets for deployment because the workflow 
 
 ## AWS IAM role setup
 
-The role referenced by `AWS_OIDC_ROLE_ARN` should trust GitHub Actions via OIDC. Example trust policy:
+The role referenced by `AWS_OIDC_ROLE_ARN` must trust GitHub Actions via OIDC. Example trust policy:
 
 ```json
 {
@@ -45,14 +45,27 @@ The role referenced by `AWS_OIDC_ROLE_ARN` should trust GitHub Actions via OIDC.
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringEquals": {
-          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": [
+            "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main",
+            "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/develop"
+          ]
         }
       }
     }
   ]
 }
 ```
+
+If your workflow is running from a different branch, or if you want the same role to work for any protected branch, replace the `sub` list with:
+
+```json
+"token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/*"
+```
+
+Also confirm the OIDC provider is created in AWS for the account that owns `GITAWSrole` and that `id-token: write` is enabled for the workflow.
 
 ## Deployment
 
