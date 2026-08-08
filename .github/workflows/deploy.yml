@@ -1,0 +1,49 @@
+name: Deploy to AWS via CloudFormation
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: github-actions
+
+      - name: Package Lambda artifact
+        run: |
+          mkdir -p artifacts
+          zip -j artifacts/lambda-package.zip lambda/handler.py
+
+      - name: Upload artifacts to staging bucket
+        run: |
+          aws s3 cp artifacts/lambda-package.zip s3://${{ secrets.CFN_STAGING_BUCKET }}/lambda/package.zip
+          aws s3 cp glue/job.py s3://${{ secrets.CFN_STAGING_BUCKET }}/glue/job.py
+
+      - name: Deploy CloudFormation stack
+        run: |
+          aws cloudformation deploy \
+            --template-file cloudformation/template.yaml \
+            --stack-name ${STACK_NAME:-lambda-glue-stack} \
+            --parameter-overrides \
+              LambdaCodeS3Bucket=${{ secrets.CFN_STAGING_BUCKET }} \
+              LambdaCodeS3Key=lambda/package.zip \
+              GlueJobScriptS3Uri=s3://${{ secrets.CFN_STAGING_BUCKET }}/glue/job.py \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset
+        env:
+          STACK_NAME: lambda-glue-stack
