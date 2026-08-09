@@ -33,12 +33,17 @@ jobs:
           role-session-name: github-actions-lambda-glue-deploy
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Package Lambda artifact
+      - name: Validate CloudFormation template
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://cloudformation/template.yaml
+
+      - name: Package Lambda
         run: |
           cd lambda
-          zip -r "../lambda-package.zip" handler.py
+          zip -r ../lambda-package.zip handler.py
 
-      - name: Upload deployment files
+      - name: Upload deployment artifacts
         run: |
           aws s3 cp lambda-package.zip "s3://$STAGING_BUCKET/$LAMBDA_KEY"
           aws s3 cp glue/job.py "s3://$STAGING_BUCKET/$GLUE_KEY"
@@ -54,7 +59,7 @@ jobs:
               LambdaCodeS3Key="$LAMBDA_KEY" \
               GlueJobScriptS3Uri="s3://$STAGING_BUCKET/$GLUE_KEY"
 
-      - name: Show deployed resources
+      - name: Show stack outputs
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$STACK_NAME" \
