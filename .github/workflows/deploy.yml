@@ -19,7 +19,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Debug OIDC claims
-        uses: github/actions-oidc-debugger@main
         with:
           audience: sts.amazonaws.com
 
