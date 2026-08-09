@@ -18,10 +18,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Debug OIDC claims
-        with:
-          audience: sts.amazonaws.com
-
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -59,22 +55,3 @@ jobs:
 
           aws s3 cp artifacts/lambda-package.zip \
             s3://${STAGING_BUCKET}/lambda/package.zip
-
-          aws s3 cp glue/job.py \
-            s3://${STAGING_BUCKET}/glue/job.py
-
-      - name: Deploy CloudFormation stack
-        env:
-          STACK_NAME: lambda-glue-stack
-        run: |
-          STAGING_BUCKET="lambda-glue-repo-staging-bucket"
-
-          aws cloudformation deploy \
-            --template-file cloudformation/template.yaml \
-            --stack-name "$STACK_NAME" \
-            --parameter-overrides \
-              LambdaCodeS3Bucket="$STAGING_BUCKET" \
-              LambdaCodeS3Key=lambda/package.zip \
-              GlueJobScriptS3Uri=s3://${STAGING_BUCKET}/glue/job.py \
-            --capabilities CAPABILITY_IAM \
-            --no-fail-on-empty-changeset
