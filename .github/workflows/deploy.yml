@@ -1,63 +1,62 @@
-name: Deploy to AWS via CloudFormation
+name: Deploy Lambda Glue Pipeline
 
 on:
   push:
     branches:
       - main
       - develop
+  workflow_dispatch:
 
 permissions:
-  id-token: write
   contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  STAGING_BUCKET: ${{ vars.CFN_STAGING_BUCKET }}
+  STACK_NAME: lambda-glue-stack
+  LAMBDA_KEY: lambda/${{ github.sha }}.zip
+  GLUE_KEY: glue/${{ github.sha }}-job.py
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # ✅ Step 1: Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ✅ Step 2: Configure AWS credentials
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::039473174687:role/GITAWSrole
-          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          role-session-name: github-actions-lambda-glue-deploy
+          aws-region: ${{ env.AWS_REGION }}
 
-      # ✅ Step 3: Package Lambda
       - name: Package Lambda artifact
         run: |
-          mkdir -p artifacts
-          zip -j artifacts/lambda-package.zip lambda/handler.py
+          cd lambda
+          zip -r "../lambda-package.zip" handler.py
 
-      # ✅ Step 4: Create S3 bucket if not exists
-      - name: Create staging bucket if missing
+      - name: Upload deployment files
         run: |
-          set -e
-          STAGING_BUCKET="lambda-glue-repo-staging-bucket"
-          AWS_REGION="us-east-1"
+          aws s3 cp lambda-package.zip "s3://$STAGING_BUCKET/$LAMBDA_KEY"
+          aws s3 cp glue/job.py "s3://$STAGING_BUCKET/$GLUE_KEY"
 
-          if aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
-            echo "Bucket exists"
-          else
-            echo "Creating bucket..."
-
-            if [ "$AWS_REGION" = "us-east-1" ]; then
-              aws s3api create-bucket --bucket "$STAGING_BUCKET"
-            else
-              aws s3api create-bucket \
-                --bucket "$STAGING_BUCKET" \
-                --create-bucket-configuration LocationConstraint="$AWS_REGION"
-            fi
-          fi
-
-      # ✅ Step 5: Upload to S3
-      - name: Upload Lambda artifact to S3
+      - name: Deploy CloudFormation stack
         run: |
-          set -e
-          STAGING_BUCKET="lambda-glue-repo-staging-bucket"
+          aws cloudformation deploy \
+            --stack-name "$STACK_NAME" \
+            --template-file cloudformation/template.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              LambdaCodeS3Bucket="$STAGING_BUCKET" \
+              LambdaCodeS3Key="$LAMBDA_KEY" \
+              GlueJobScriptS3Uri="s3://$STAGING_BUCKET/$GLUE_KEY"
 
-          aws s3 cp artifacts/lambda-package.zip \
-            s3://${STAGING_BUCKET}/lambda/package.zip
+      - name: Show deployed resources
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs" \
+            --output table
