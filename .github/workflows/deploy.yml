@@ -15,30 +15,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ✅ Step 1: Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ✅ Step 2: Configure AWS credentials
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::039473174687:role/GITAWSrole
           aws-region: us-east-1
-          role-session-name: github-actions
 
+      # ✅ Step 3: Package Lambda
       - name: Package Lambda artifact
         run: |
           mkdir -p artifacts
           zip -j artifacts/lambda-package.zip lambda/handler.py
 
+      # ✅ Step 4: Create S3 bucket if not exists
       - name: Create staging bucket if missing
         run: |
+          set -e
           STAGING_BUCKET="lambda-glue-repo-staging-bucket"
           AWS_REGION="us-east-1"
 
           if aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
-            echo "Staging bucket already exists"
+            echo "Bucket exists"
           else
-            echo "Creating staging bucket $STAGING_BUCKET"
+            echo "Creating bucket..."
 
             if [ "$AWS_REGION" = "us-east-1" ]; then
               aws s3api create-bucket --bucket "$STAGING_BUCKET"
@@ -49,8 +53,10 @@ jobs:
             fi
           fi
 
-      - name: Upload artifacts to staging bucket
+      # ✅ Step 5: Upload to S3
+      - name: Upload Lambda artifact to S3
         run: |
+          set -e
           STAGING_BUCKET="lambda-glue-repo-staging-bucket"
 
           aws s3 cp artifacts/lambda-package.zip \
