@@ -23,10 +23,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ✅ CORRECT OIDC AUTH (no debugger, no docker)
+      # ✅ KEEP THIS (correct one)
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -34,17 +35,19 @@ jobs:
           role-session-name: github-actions
           aws-region: ${{ env.AWS_REGION }}
 
+      # Step 2: Validate CloudFormation template
       - name: Validate CloudFormation template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/template.yaml
 
-      - name: Package Lambda artifact
+      # Step 3: Package Lambda
+      - name: Package Lambda
         run: |
           cd lambda
           zip -r ../lambda-package.zip .
 
-      # ✅ FIXED bucket creation (important for us-east-1)
+      # Step 4: Create staging bucket if missing
       - name: Create staging bucket if missing
         run: |
           if aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
@@ -53,11 +56,13 @@ jobs:
             aws s3api create-bucket --bucket "$STAGING_BUCKET" --region "$AWS_REGION"
           fi
 
+      # Step 5: Upload deployment artifacts
       - name: Upload deployment artifacts
         run: |
           aws s3 cp lambda-package.zip "s3://$STAGING_BUCKET/$LAMBDA_KEY"
           aws s3 cp glue/job.py "s3://$STAGING_BUCKET/$GLUE_KEY"
 
+      # Step 6: Deploy CloudFormation stack
       - name: Deploy CloudFormation stack
         run: |
           aws cloudformation deploy \
@@ -70,6 +75,7 @@ jobs:
               LambdaCodeS3Key="$LAMBDA_KEY" \
               GlueJobScriptS3Uri="s3://$STAGING_BUCKET/$GLUE_KEY"
 
+      # Step 7: Show stack outputs
       - name: Show stack outputs
         run: |
           aws cloudformation describe-stacks \
