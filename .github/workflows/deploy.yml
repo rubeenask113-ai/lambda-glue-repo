@@ -26,12 +26,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ✅ CORRECT OIDC AUTH (no debugger, no docker)
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::039473174687:role/GITAWSrole
-          role-session-name: github-actions-lambda-glue-deploy
-          aws-region: us-east-1
+          role-session-name: github-actions
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Validate CloudFormation template
         run: |
@@ -41,14 +42,15 @@ jobs:
       - name: Package Lambda artifact
         run: |
           cd lambda
-          zip -r ../lambda-package.zip handler.py
+          zip -r ../lambda-package.zip .
 
+      # ✅ FIXED bucket creation (important for us-east-1)
       - name: Create staging bucket if missing
         run: |
           if aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
             echo "Staging bucket exists."
           else
-            aws s3api create-bucket --bucket "$STAGING_BUCKET"
+            aws s3api create-bucket --bucket "$STAGING_BUCKET" --region "$AWS_REGION"
           fi
 
       - name: Upload deployment artifacts
@@ -62,6 +64,7 @@ jobs:
             --stack-name "$STACK_NAME" \
             --template-file cloudformation/template.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
+            --region "$AWS_REGION" \
             --parameter-overrides \
               LambdaCodeS3Bucket="$STAGING_BUCKET" \
               LambdaCodeS3Key="$LAMBDA_KEY" \
@@ -71,5 +74,6 @@ jobs:
         run: |
           aws cloudformation describe-stacks \
             --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
             --query "Stacks[0].Outputs" \
             --output table
