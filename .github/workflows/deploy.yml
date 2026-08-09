@@ -25,13 +25,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
-          role-session-name: github-actions-lambda-glue-deploy
-          aws-region: ${{ env.AWS_REGION }}
+- name: Configure AWS credentials via OIDC
+  uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::039473174687:role/GITAWSrole
+    aws-region: us-east-1
 
       - name: Validate CloudFormation template
         run: |
