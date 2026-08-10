@@ -23,11 +23,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository
+      # Step 1: Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ✅ KEEP THIS (correct one)
+      # Step 2: OIDC Authentication (FINAL CORRECT)
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -35,34 +35,34 @@ jobs:
           role-session-name: github-actions
           aws-region: ${{ env.AWS_REGION }}
 
-      # Step 2: Validate CloudFormation template
+      # Step 3: Validate CloudFormation
       - name: Validate CloudFormation template
         run: |
           aws cloudformation validate-template \
             --template-body file://cloudformation/template.yaml
 
-      # Step 3: Package Lambda
+      # Step 4: Package Lambda
       - name: Package Lambda
         run: |
           cd lambda
           zip -r ../lambda-package.zip .
 
-      # Step 4: Create staging bucket if missing
+      # Step 5: Create S3 bucket (fix for us-east-1)
       - name: Create staging bucket if missing
         run: |
           if aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
-            echo "Staging bucket exists."
+            echo "Bucket exists"
           else
-            aws s3api create-bucket --bucket "$STAGING_BUCKET" --region "$AWS_REGION"
+            aws s3api create-bucket --bucket "$STAGING_BUCKET"
           fi
 
-      # Step 5: Upload deployment artifacts
+      # Step 6: Upload artifacts
       - name: Upload deployment artifacts
         run: |
           aws s3 cp lambda-package.zip "s3://$STAGING_BUCKET/$LAMBDA_KEY"
           aws s3 cp glue/job.py "s3://$STAGING_BUCKET/$GLUE_KEY"
 
-      # Step 6: Deploy CloudFormation stack
+      # Step 7: Deploy stack
       - name: Deploy CloudFormation stack
         run: |
           aws cloudformation deploy \
@@ -75,7 +75,7 @@ jobs:
               LambdaCodeS3Key="$LAMBDA_KEY" \
               GlueJobScriptS3Uri="s3://$STAGING_BUCKET/$GLUE_KEY"
 
-      # Step 7: Show stack outputs
+      # Step 8: Outputs
       - name: Show stack outputs
         run: |
           aws cloudformation describe-stacks \
