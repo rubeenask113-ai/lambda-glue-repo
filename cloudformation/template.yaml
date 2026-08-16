@@ -24,43 +24,20 @@ Parameters:
 
 Resources:
 
-  # ==================================================
-  # S3 BUCKET
-  # ==================================================
+  # =========================================================
+  # EXISTING DATA BUCKET
+  # =========================================================
 
   DataBucket:
     Type: AWS::S3::Bucket
 
     Properties:
-
-      BucketName: lambda-glue-stack-databucket-xe1g4bjzxvsq
-
-      NotificationConfiguration:
-
-        LambdaConfigurations:
-
-          - Event: s3:ObjectCreated:*
-
-            Function:
-              !GetAtt GlueEventProcessor.Arn
-
-            Filter:
-
-              S3Key:
-
-                Rules:
-
-                  - Name: prefix
-                    Value: input/
+      BucketName: lambda-glue-stack-databucket
 
 
-    DependsOn:
-      - LambdaInvokePermission
-
-
-  # ==================================================
+  # =========================================================
   # LAMBDA EXECUTION ROLE
-  # ==================================================
+  # =========================================================
 
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -76,7 +53,6 @@ Resources:
           - Effect: Allow
 
             Principal:
-
               Service:
                 - lambda.amazonaws.com
 
@@ -97,7 +73,6 @@ Resources:
               - Effect: Allow
 
                 Action:
-
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
@@ -109,32 +84,29 @@ Resources:
               - Effect: Allow
 
                 Action:
-
                   - s3:GetObject
                   - s3:GetObjectAcl
                   - s3:ListBucket
 
                 Resource:
-
-                  - arn:aws:s3:::lambda-glue-stack-databucket-xe1g4bjzxvsq
-                  - arn:aws:s3:::lambda-glue-stack-databucket-xe1g4bjzxvsq/*
+                  - !GetAtt DataBucket.Arn
+                  - !Sub '${DataBucket.Arn}/*'
 
 
               - Effect: Allow
 
                 Action:
-
                   - glue:StartJobRun
                   - glue:GetJob
                   - glue:GetJobRun
 
                 Resource:
-                  !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}'
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}'
 
 
-  # ==================================================
-  # LAMBDA
-  # ==================================================
+  # =========================================================
+  # MAIN LAMBDA
+  # =========================================================
 
   GlueEventProcessor:
     Type: AWS::Lambda::Function
@@ -172,9 +144,9 @@ Resources:
           !Ref LambdaCodeS3Key
 
 
-  # ==================================================
-  # ALLOW S3 TO INVOKE LAMBDA
-  # ==================================================
+  # =========================================================
+  # ALLOW S3 TO INVOKE MAIN LAMBDA
+  # =========================================================
 
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
@@ -191,15 +163,15 @@ Resources:
         s3.amazonaws.com
 
       SourceArn:
-        arn:aws:s3:::lambda-glue-stack-databucket-xe1g4bjzxvsq
+        !GetAtt DataBucket.Arn
 
       SourceAccount:
         !Ref AWS::AccountId
 
 
-  # ==================================================
-  # GLUE ROLE
-  # ==================================================
+  # =========================================================
+  # GLUE EXECUTION ROLE
+  # =========================================================
 
   GlueJobRole:
     Type: AWS::IAM::Role
@@ -215,7 +187,6 @@ Resources:
           - Effect: Allow
 
             Principal:
-
               Service:
                 - glue.amazonaws.com
 
@@ -236,21 +207,18 @@ Resources:
               - Effect: Allow
 
                 Action:
-
                   - s3:GetObject
                   - s3:PutObject
                   - s3:ListBucket
 
                 Resource:
-
-                  - arn:aws:s3:::lambda-glue-stack-databucket-xe1g4bjzxvsq
-                  - arn:aws:s3:::lambda-glue-stack-databucket-xe1g4bjzxvsq/*
+                  - !GetAtt DataBucket.Arn
+                  - !Sub '${DataBucket.Arn}/*'
 
 
               - Effect: Allow
 
                 Action:
-
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
@@ -259,9 +227,9 @@ Resources:
                   - arn:aws:logs:*:*:*
 
 
-  # ==================================================
+  # =========================================================
   # GLUE JOB
-  # ==================================================
+  # =========================================================
 
   LambdaToGlueJob:
     Type: AWS::Glue::Job
@@ -286,20 +254,241 @@ Resources:
       DefaultArguments:
 
         --TempDir:
-          !Sub 's3://lambda-glue-stack-databucket-xe1g4bjzxvsq/temp/'
+          !Sub 's3://${DataBucket}/temp/'
 
         --job-language: python
 
 
-# ==================================================
+  # =========================================================
+  # ROLE FOR S3 NOTIFICATION CONFIGURATION
+  # =========================================================
+
+  S3NotificationRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+
+      AssumeRolePolicyDocument:
+
+        Version: '2012-10-17'
+
+        Statement:
+
+          - Effect: Allow
+
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+            Action:
+              - sts:AssumeRole
+
+
+      Policies:
+
+        - PolicyName: S3NotificationConfigurationPolicy
+
+          PolicyDocument:
+
+            Version: '2012-10-17'
+
+            Statement:
+
+              - Effect: Allow
+
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+
+                Resource:
+                  - arn:aws:logs:*:*:*
+
+
+              - Effect: Allow
+
+                Action:
+                  - s3:GetBucketNotification
+                  - s3:PutBucketNotification
+
+                Resource:
+                  - !GetAtt DataBucket.Arn
+
+
+  # =========================================================
+  # CUSTOM RESOURCE LAMBDA
+  # =========================================================
+
+  S3NotificationFunction:
+    Type: AWS::Lambda::Function
+
+    Properties:
+
+      Runtime: python3.11
+
+      Handler: index.handler
+
+      Timeout: 60
+
+      Role:
+        !GetAtt S3NotificationRole.Arn
+
+      Code:
+
+        ZipFile: |
+
+          import json
+          import boto3
+          import urllib.request
+
+          s3 = boto3.client("s3")
+
+
+          def send_response(event, context, status, data):
+
+              body = json.dumps({
+                  "Status": status,
+                  "Reason": "See CloudWatch Logs",
+                  "PhysicalResourceId": context.log_stream_name,
+                  "StackId": event["StackId"],
+                  "RequestId": event["RequestId"],
+                  "LogicalResourceId": event["LogicalResourceId"],
+                  "Data": data
+              })
+
+              request = urllib.request.Request(
+                  event["ResponseURL"],
+                  data=body.encode("utf-8"),
+                  headers={
+                      "content-type": "",
+                      "content-length": str(len(body))
+                  },
+                  method="PUT"
+              )
+
+              urllib.request.urlopen(request)
+
+
+          def handler(event, context):
+
+              print("Event:", json.dumps(event))
+
+              bucket = event["ResourceProperties"]["BucketName"]
+              lambda_arn = event["ResourceProperties"]["LambdaArn"]
+
+              try:
+
+                  if event["RequestType"] == "Delete":
+
+                      s3.put_bucket_notification_configuration(
+                          Bucket=bucket,
+                          NotificationConfiguration={}
+                      )
+
+                      send_response(
+                          event,
+                          context,
+                          "SUCCESS",
+                          {}
+                      )
+
+                      return
+
+
+                  notification_configuration = {
+
+                      "LambdaFunctionConfigurations": [
+
+                          {
+                              "LambdaFunctionArn": lambda_arn,
+
+                              "Events": [
+                                  "s3:ObjectCreated:*"
+                              ],
+
+                              "Filter": {
+
+                                  "Key": {
+
+                                      "FilterRules": [
+
+                                          {
+                                              "Name": "prefix",
+                                              "Value": "input/"
+                                          }
+
+                                      ]
+
+                                  }
+
+                              }
+
+                          }
+
+                      ]
+
+                  }
+
+
+                  s3.put_bucket_notification_configuration(
+                      Bucket=bucket,
+                      NotificationConfiguration=notification_configuration
+                  )
+
+
+                  send_response(
+                      event,
+                      context,
+                      "SUCCESS",
+                      {}
+                  )
+
+
+              except Exception as error:
+
+                  print("ERROR:", str(error))
+
+                  send_response(
+                      event,
+                      context,
+                      "FAILED",
+                      {
+                          "Error": str(error)
+                      }
+                  )
+
+
+  # =========================================================
+  # CONFIGURE S3 → LAMBDA TRIGGER
+  # =========================================================
+
+  ConfigureS3Notification:
+    Type: Custom::S3Notification
+
+    DependsOn:
+      - LambdaInvokePermission
+
+    Properties:
+
+      ServiceToken:
+        !GetAtt S3NotificationFunction.Arn
+
+      BucketName:
+        !Ref DataBucket
+
+      LambdaArn:
+        !GetAtt GlueEventProcessor.Arn
+
+
+# =========================================================
 # OUTPUTS
-# ==================================================
+# =========================================================
 
 Outputs:
 
   DataBucketName:
 
-    Description: S3 bucket receiving input files
+    Description: S3 input/output bucket
 
     Value:
       !Ref DataBucket
