@@ -25,22 +25,6 @@ Parameters:
 Resources:
 
   # ============================================================
-  # S3 DATA BUCKET
-  # ============================================================
-
-  DataBucket:
-    Type: AWS::S3::Bucket
-
-    Properties:
-      BucketName: lambda-glue-stack-databucket
-
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt GlueEventProcessor.Arn
-
-
-  # ============================================================
   # LAMBDA EXECUTION ROLE
   # ============================================================
 
@@ -54,14 +38,11 @@ Resources:
 
         Statement:
           - Effect: Allow
-
             Principal:
               Service:
                 - lambda.amazonaws.com
-
             Action:
               - sts:AssumeRole
-
 
       Policies:
 
@@ -77,12 +58,10 @@ Resources:
               # ------------------------------------------------
 
               - Effect: Allow
-
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-
                 Resource:
                   - arn:aws:logs:*:*:*
 
@@ -99,8 +78,8 @@ Resources:
                   - s3:ListBucket
 
                 Resource:
-                  - !GetAtt DataBucket.Arn
-                  - !Sub '${DataBucket.Arn}/*'
+                  - arn:aws:s3:::lambda-glue-stack-databucket
+                  - arn:aws:s3:::lambda-glue-stack-databucket/*
 
 
               # ------------------------------------------------
@@ -138,7 +117,7 @@ Resources:
       Environment:
         Variables:
 
-          DATA_BUCKET: !Ref DataBucket
+          DATA_BUCKET: lambda-glue-stack-databucket
 
           GLUE_JOB_NAME: !Ref GlueJobName
 
@@ -165,9 +144,31 @@ Resources:
 
       Principal: s3.amazonaws.com
 
-      SourceArn: !Sub 'arn:aws:s3:::lambda-glue-stack-databucket'
+      SourceArn: arn:aws:s3:::lambda-glue-stack-databucket
 
       SourceAccount: !Ref AWS::AccountId
+
+
+  # ============================================================
+  # S3 DATA BUCKET
+  # ============================================================
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+
+    DependsOn:
+      - LambdaInvokePermission
+
+    Properties:
+
+      BucketName: lambda-glue-stack-databucket
+
+      NotificationConfiguration:
+
+        LambdaConfigurations:
+
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt GlueEventProcessor.Arn
 
 
   # ============================================================
@@ -184,14 +185,11 @@ Resources:
 
         Statement:
           - Effect: Allow
-
             Principal:
               Service:
                 - glue.amazonaws.com
-
             Action:
               - sts:AssumeRole
-
 
       Policies:
 
@@ -214,8 +212,8 @@ Resources:
                   - s3:ListBucket
 
                 Resource:
-                  - !GetAtt DataBucket.Arn
-                  - !Sub '${DataBucket.Arn}/*'
+                  - arn:aws:s3:::lambda-glue-stack-databucket
+                  - arn:aws:s3:::lambda-glue-stack-databucket/*
 
 
               # ==================================================
@@ -263,6 +261,7 @@ Resources:
       Role: !GetAtt GlueJobRole.Arn
 
       Command:
+
         Name: glueetl
 
         PythonVersion: '3'
@@ -270,21 +269,17 @@ Resources:
         ScriptLocation: !Ref GlueJobScriptS3Uri
 
 
-      # ========================================================
-      # GLUE JOB ARGUMENTS
-      # ========================================================
-
       DefaultArguments:
 
-        --TempDir: !Sub 's3://${DataBucket}/temp/'
+        --TempDir: s3://lambda-glue-stack-databucket/temp/
 
         --job-language: python
 
-        --input_bucket: !Ref DataBucket
+        --input_bucket: lambda-glue-stack-databucket
 
         --input_key: input/location_data.csv
 
-        --output_bucket: !Ref DataBucket
+        --output_bucket: lambda-glue-stack-databucket
 
         --output_prefix: glue-output
 
@@ -299,17 +294,14 @@ Outputs:
 
   DataBucketName:
     Description: Name of the S3 bucket that receives uploaded files.
-
     Value: !Ref DataBucket
 
 
   LambdaFunctionArn:
     Description: ARN of the Lambda function.
-
     Value: !GetAtt GlueEventProcessor.Arn
 
 
   GlueJobNameOutput:
     Description: Name of the AWS Glue job.
-
     Value: !Ref GlueJobName
