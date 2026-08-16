@@ -1,189 +1,134 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: S3 triggered Lambda and Glue ETL pipeline
-
-Parameters:
-
-  LambdaCodeS3Bucket:
-    Type: String
-
-  LambdaCodeS3Key:
-    Type: String
-
-  GlueJobScriptS3Uri:
-    Type: String
-
-  GlueJobName:
-    Type: String
-    Default: lambda-glue-job
-
-  RequiredColumns:
-    Type: CommaDelimitedList
-    Default: city,state,country
-
+Description: >
+  Lambda Glue Pipeline - S3 file upload triggers Lambda,
+  Lambda validates columns and starts Glue job,
+  Glue partitions data by city, state and country.
 
 Resources:
 
-  # =========================================================
-  # EXISTING DATA BUCKET
-  # =========================================================
+  # ============================================================
+  # 1. DATA S3 BUCKET
+  # ============================================================
 
   DataBucket:
     Type: AWS::S3::Bucket
-
     Properties:
-      BucketName: lambda-glue-stack-databucket
+      BucketName: !Sub '${AWS::StackName}-databucket'
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt LambdaFunction.Arn
 
+  # ============================================================
+  # 2. LAMBDA PERMISSION FOR S3 TRIGGER
+  # ============================================================
 
-  # =========================================================
-  # LAMBDA EXECUTION ROLE
-  # =========================================================
+  LambdaS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt DataBucket.Arn
+      SourceAccount: !Ref AWS::AccountId
+
+  # ============================================================
+  # 3. LAMBDA EXECUTION ROLE
+  # ============================================================
 
   LambdaExecutionRole:
     Type: AWS::IAM::Role
-
     Properties:
+      RoleName: !Sub '${AWS::StackName}-LambdaExecutionRole'
 
       AssumeRolePolicyDocument:
-
         Version: '2012-10-17'
-
         Statement:
-
           - Effect: Allow
-
             Principal:
               Service:
                 - lambda.amazonaws.com
-
             Action:
               - sts:AssumeRole
 
-
       Policies:
-
-        - PolicyName: LambdaExecutionPolicy
+        - PolicyName: LambdaPipelinePolicy
 
           PolicyDocument:
-
             Version: '2012-10-17'
 
             Statement:
 
+              # Lambda CloudWatch Logs
               - Effect: Allow
-
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-
                 Resource:
                   - arn:aws:logs:*:*:*
 
-
+              # Read files from data bucket
               - Effect: Allow
-
                 Action:
                   - s3:GetObject
-                  - s3:GetObjectAcl
                   - s3:ListBucket
-
                 Resource:
                   - !GetAtt DataBucket.Arn
                   - !Sub '${DataBucket.Arn}/*'
 
-
+              # Start Glue job
               - Effect: Allow
-
                 Action:
                   - glue:StartJobRun
-                  - glue:GetJob
-                  - glue:GetJobRun
-
                 Resource:
-                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}'
+                  - !GetAtt GlueJob.Arn
 
 
-  # =========================================================
-  # MAIN LAMBDA
-  # =========================================================
+  # ============================================================
+  # 4. LAMBDA FUNCTION
+  # ============================================================
 
-  GlueEventProcessor:
+  LambdaFunction:
     Type: AWS::Lambda::Function
 
     Properties:
+      FunctionName: !Sub '${AWS::StackName}-LambdaFunction'
 
-      Runtime: python3.11
+      Runtime: python3.14
 
-      Handler: handler.lambda_handler
+      Handler: lambda_function.lambda_handler
 
-      Timeout: 300
+      Role: !GetAtt LambdaExecutionRole.Arn
 
-      Role:
-        !GetAtt LambdaExecutionRole.Arn
+      Timeout: 60
+
+      MemorySize: 256
 
       Environment:
-
         Variables:
-
-          DATA_BUCKET:
-            !Ref DataBucket
-
-          GLUE_JOB_NAME:
-            !Ref GlueJobName
-
-          REQUIRED_COLUMNS:
-            !Join [",", !Ref RequiredColumns]
+          GLUE_JOB_NAME: !Ref GlueJob
 
       Code:
-
-        S3Bucket:
-          !Ref LambdaCodeS3Bucket
-
-        S3Key:
-          !Ref LambdaCodeS3Key
+        S3Bucket: lambda-glue-repo-staging-bucket
+        S3Key: lambda/lambda_function.zip
 
 
-  # =========================================================
-  # ALLOW S3 TO INVOKE MAIN LAMBDA
-  # =========================================================
-
-  LambdaInvokePermission:
-    Type: AWS::Lambda::Permission
-
-    Properties:
-
-      FunctionName:
-        !Ref GlueEventProcessor
-
-      Action:
-        lambda:InvokeFunction
-
-      Principal:
-        s3.amazonaws.com
-
-      SourceArn:
-        !GetAtt DataBucket.Arn
-
-      SourceAccount:
-        !Ref AWS::AccountId
-
-
-  # =========================================================
-  # GLUE EXECUTION ROLE
-  # =========================================================
+  # ============================================================
+  # 5. GLUE IAM ROLE
+  # ============================================================
 
   GlueJobRole:
     Type: AWS::IAM::Role
 
     Properties:
+      RoleName: !Sub '${AWS::StackName}-GlueJobRole'
 
       AssumeRolePolicyDocument:
-
         Version: '2012-10-17'
 
         Statement:
-
           - Effect: Allow
 
             Principal:
@@ -193,16 +138,22 @@ Resources:
             Action:
               - sts:AssumeRole
 
-
       Policies:
+
+        # ======================================================
+        # GLUE POLICY
+        # ======================================================
 
         - PolicyName: GlueJobPolicy
 
           PolicyDocument:
-
             Version: '2012-10-17'
 
             Statement:
+
+              # ------------------------------------------------
+              # DATA BUCKET ACCESS
+              # ------------------------------------------------
 
               - Effect: Allow
 
@@ -216,6 +167,29 @@ Resources:
                   - !Sub '${DataBucket.Arn}/*'
 
 
+              # ------------------------------------------------
+              # STAGING BUCKET ACCESS
+              #
+              # IMPORTANT:
+              # Glue downloads its job.py from this bucket.
+              # ------------------------------------------------
+
+              - Effect: Allow
+
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+
+                Resource:
+                  - arn:aws:s3:::lambda-glue-repo-staging-bucket
+                  - arn:aws:s3:::lambda-glue-repo-staging-bucket/*
+
+
+              # ------------------------------------------------
+              # CLOUDWATCH LOGS
+              # ------------------------------------------------
+
               - Effect: Allow
 
                 Action:
@@ -227,284 +201,99 @@ Resources:
                   - arn:aws:logs:*:*:*
 
 
-  # =========================================================
-  # GLUE JOB
-  # =========================================================
+              # ------------------------------------------------
+              # GLUE SERVICE PERMISSIONS
+              # ------------------------------------------------
 
-  LambdaToGlueJob:
+              - Effect: Allow
+
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetDatabases
+                  - glue:GetTable
+                  - glue:GetTables
+                  - glue:CreateDatabase
+                  - glue:CreateTable
+                  - glue:UpdateTable
+                  - glue:GetJob
+                  - glue:GetJobs
+                  - glue:GetJobRun
+                  - glue:GetJobRuns
+
+                Resource:
+                  - '*'
+
+
+  # ============================================================
+  # 6. GLUE JOB
+  # ============================================================
+
+  GlueJob:
     Type: AWS::Glue::Job
 
     Properties:
+      Name: !Sub '${AWS::StackName}-GlueJob'
 
-      Name:
-        !Ref GlueJobName
+      Role: !GetAtt GlueJobRole.Arn
 
-      Role:
-        !GetAtt GlueJobRole.Arn
+      GlueVersion: '4.0'
+
+      NumberOfWorkers: 2
+
+      WorkerType: G.1X
 
       Command:
-
         Name: glueetl
 
         PythonVersion: '3'
 
-        ScriptLocation:
-          !Ref GlueJobScriptS3Uri
+        ScriptLocation: !Sub >
+          s3://lambda-glue-repo-staging-bucket/glue/${AWS::StackId}-job.py
 
       DefaultArguments:
 
-        --TempDir:
-          !Sub 's3://${DataBucket}/temp/'
+        '--job-language': python
 
-        --job-language: python
+        '--enable-continuous-cloudwatch-log': 'true'
 
+        '--enable-spark-ui': 'true'
 
-  # =========================================================
-  # ROLE FOR S3 NOTIFICATION CONFIGURATION
-  # =========================================================
+        '--enable-metrics': 'true'
 
-  S3NotificationRole:
-    Type: AWS::IAM::Role
+        '--enable-job-insights': 'true'
 
-    Properties:
+        '--TempDir': !Sub 's3://${DataBucket}/temp/'
 
-      AssumeRolePolicyDocument:
+        '--input_path': !Sub 's3://${DataBucket}/input/'
 
-        Version: '2012-10-17'
+        '--output_path': !Sub 's3://${DataBucket}/output/'
 
-        Statement:
+      ExecutionProperty:
+        MaxConcurrentRuns: 1
 
-          - Effect: Allow
+      MaxRetries: 0
 
-            Principal:
-              Service:
-                - lambda.amazonaws.com
+      Timeout: 30
 
-            Action:
-              - sts:AssumeRole
 
-
-      Policies:
-
-        - PolicyName: S3NotificationConfigurationPolicy
-
-          PolicyDocument:
-
-            Version: '2012-10-17'
-
-            Statement:
-
-              - Effect: Allow
-
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-
-                Resource:
-                  - arn:aws:logs:*:*:*
-
-
-              - Effect: Allow
-
-                Action:
-                  - s3:GetBucketNotification
-                  - s3:PutBucketNotification
-
-                Resource:
-                  - !GetAtt DataBucket.Arn
-
-
-  # =========================================================
-  # CUSTOM RESOURCE LAMBDA
-  # =========================================================
-
-  S3NotificationFunction:
-    Type: AWS::Lambda::Function
-
-    Properties:
-
-      Runtime: python3.11
-
-      Handler: index.handler
-
-      Timeout: 60
-
-      Role:
-        !GetAtt S3NotificationRole.Arn
-
-      Code:
-
-        ZipFile: |
-
-          import json
-          import boto3
-          import urllib.request
-
-          s3 = boto3.client("s3")
-
-
-          def send_response(event, context, status, data):
-
-              body = json.dumps({
-                  "Status": status,
-                  "Reason": "See CloudWatch Logs",
-                  "PhysicalResourceId": context.log_stream_name,
-                  "StackId": event["StackId"],
-                  "RequestId": event["RequestId"],
-                  "LogicalResourceId": event["LogicalResourceId"],
-                  "Data": data
-              })
-
-              request = urllib.request.Request(
-                  event["ResponseURL"],
-                  data=body.encode("utf-8"),
-                  headers={
-                      "content-type": "",
-                      "content-length": str(len(body))
-                  },
-                  method="PUT"
-              )
-
-              urllib.request.urlopen(request)
-
-
-          def handler(event, context):
-
-              print("Event:", json.dumps(event))
-
-              bucket = event["ResourceProperties"]["BucketName"]
-              lambda_arn = event["ResourceProperties"]["LambdaArn"]
-
-              try:
-
-                  if event["RequestType"] == "Delete":
-
-                      s3.put_bucket_notification_configuration(
-                          Bucket=bucket,
-                          NotificationConfiguration={}
-                      )
-
-                      send_response(
-                          event,
-                          context,
-                          "SUCCESS",
-                          {}
-                      )
-
-                      return
-
-
-                  notification_configuration = {
-
-                      "LambdaFunctionConfigurations": [
-
-                          {
-                              "LambdaFunctionArn": lambda_arn,
-
-                              "Events": [
-                                  "s3:ObjectCreated:*"
-                              ],
-
-                              "Filter": {
-
-                                  "Key": {
-
-                                      "FilterRules": [
-
-                                          {
-                                              "Name": "prefix",
-                                              "Value": "input/"
-                                          }
-
-                                      ]
-
-                                  }
-
-                              }
-
-                          }
-
-                      ]
-
-                  }
-
-
-                  s3.put_bucket_notification_configuration(
-                      Bucket=bucket,
-                      NotificationConfiguration=notification_configuration
-                  )
-
-
-                  send_response(
-                      event,
-                      context,
-                      "SUCCESS",
-                      {}
-                  )
-
-
-              except Exception as error:
-
-                  print("ERROR:", str(error))
-
-                  send_response(
-                      event,
-                      context,
-                      "FAILED",
-                      {
-                          "Error": str(error)
-                      }
-                  )
-
-
-  # =========================================================
-  # CONFIGURE S3 → LAMBDA TRIGGER
-  # =========================================================
-
-  ConfigureS3Notification:
-    Type: Custom::S3Notification
-
-    DependsOn:
-      - LambdaInvokePermission
-
-    Properties:
-
-      ServiceToken:
-        !GetAtt S3NotificationFunction.Arn
-
-      BucketName:
-        !Ref DataBucket
-
-      LambdaArn:
-        !GetAtt GlueEventProcessor.Arn
-
-
-# =========================================================
+# ==============================================================
 # OUTPUTS
-# =========================================================
+# ==============================================================
 
 Outputs:
 
   DataBucketName:
+    Description: Data S3 bucket
+    Value: !Ref DataBucket
 
-    Description: S3 input/output bucket
+  LambdaFunctionName:
+    Description: Lambda function
+    Value: !Ref LambdaFunction
 
-    Value:
-      !Ref DataBucket
+  GlueJobName:
+    Description: Glue job
+    Value: !Ref GlueJob
 
-
-  LambdaFunctionArn:
-
-    Description: Lambda function ARN
-
-    Value:
-      !GetAtt GlueEventProcessor.Arn
-
-
-  GlueJobNameOutput:
-
-    Description: Glue job name
-
-    Value:
-      !Ref GlueJobName
+  GlueJobRole:
+    Description: Glue IAM execution role
+    Value: !Ref GlueJobRole
