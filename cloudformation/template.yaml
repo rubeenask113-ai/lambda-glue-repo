@@ -3,6 +3,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: AWS CloudFormation stack for an S3-triggered Lambda and Glue ETL pipeline.
 
 Parameters:
+
   LambdaCodeS3Bucket:
     Type: String
 
@@ -18,7 +19,7 @@ Parameters:
 
   RequiredColumns:
     Type: CommaDelimitedList
-    Default: id,name,city,state,country
+    Default: city,state,country
 
 
 Resources:
@@ -29,6 +30,7 @@ Resources:
 
   DataBucket:
     Type: AWS::S3::Bucket
+
     Properties:
       BucketName: lambda-glue-stack-databucket
 
@@ -41,6 +43,7 @@ Resources:
     Type: AWS::IAM::Role
 
     Properties:
+
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
 
@@ -118,6 +121,7 @@ Resources:
     Type: AWS::Lambda::Function
 
     Properties:
+
       Runtime: python3.11
 
       Handler: handler.lambda_handler
@@ -129,13 +133,17 @@ Resources:
 
       Environment:
         Variables:
+
           DATA_BUCKET: !Ref DataBucket
+
           GLUE_JOB_NAME: !Ref GlueJobName
+
           REQUIRED_COLUMNS: !Join [",", !Ref RequiredColumns]
 
 
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
+
         S3Key: !Ref LambdaCodeS3Key
 
 
@@ -147,6 +155,7 @@ Resources:
     Type: AWS::Lambda::Permission
 
     Properties:
+
       FunctionName: !Ref GlueEventProcessor
 
       Action: lambda:InvokeFunction
@@ -166,6 +175,7 @@ Resources:
     Type: AWS::IAM::Role
 
     Properties:
+
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
 
@@ -209,10 +219,6 @@ Resources:
               # 2. STAGING BUCKET ACCESS
               #
               # GitHub Actions uploads the Glue job script here.
-              #
-              # Example:
-              # s3://lambda-glue-repo-staging-bucket/glue/
-              # a4c7c5b1b8b20988d524bfedbae94dc4221542e0-job.py
               # ==================================================
 
               - Effect: Allow
@@ -264,11 +270,25 @@ Resources:
         ScriptLocation: !Ref GlueJobScriptS3Uri
 
 
+      # ========================================================
+      # GLUE JOB ARGUMENTS
+      # ========================================================
+
       DefaultArguments:
 
         --TempDir: !Sub 's3://${DataBucket}/temp/'
 
         --job-language: python
+
+        --input_bucket: !Ref DataBucket
+
+        --input_key: input/location_data.csv
+
+        --output_bucket: !Ref DataBucket
+
+        --output_prefix: glue-output
+
+        --required_columns: !Join [",", !Ref RequiredColumns]
 
 
 # ================================================================
@@ -279,14 +299,17 @@ Outputs:
 
   DataBucketName:
     Description: Name of the S3 bucket that receives uploaded files.
+
     Value: !Ref DataBucket
 
 
   LambdaFunctionArn:
     Description: ARN of the Lambda function.
+
     Value: !GetAtt GlueEventProcessor.Arn
 
 
   GlueJobNameOutput:
     Description: Name of the AWS Glue job.
+
     Value: !Ref GlueJobName
