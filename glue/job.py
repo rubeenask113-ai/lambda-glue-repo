@@ -16,8 +16,8 @@ def main():
             "input_key",
             "output_bucket",
             "output_prefix",
-            "required_columns"
-        ]
+            "required_columns",
+        ],
     )
 
     required_columns = [
@@ -26,25 +26,34 @@ def main():
         if column.strip()
     ]
 
-    input_path = (
-        f"s3://{args['input_bucket']}/{args['input_key']}"
-    )
+    input_path = f"s3://{args['input_bucket']}/{args['input_key']}"
 
     output_base = (
         f"s3://{args['output_bucket']}/"
         f"{args['output_prefix'].rstrip('/')}"
     )
 
-    # Start Spark / Glue
+    # ------------------------------------------------------------
+    # START GLUE
+    # ------------------------------------------------------------
+
     sc = SparkContext()
+
     glue_context = GlueContext(sc)
+
     spark = glue_context.spark_session
 
     job = Job(glue_context)
 
     job.init(args["JOB_NAME"], args)
 
-    # Read CSV
+
+    # ------------------------------------------------------------
+    # READ INPUT CSV
+    # ------------------------------------------------------------
+
+    print(f"Reading input from: {input_path}")
+
     df = (
         spark.read
         .option("header", "true")
@@ -54,7 +63,11 @@ def main():
 
     print("Input columns:", df.columns)
 
-    # Validate columns
+
+    # ------------------------------------------------------------
+    # VALIDATE REQUIRED COLUMNS
+    # ------------------------------------------------------------
+
     missing_columns = [
         column
         for column in required_columns
@@ -62,68 +75,75 @@ def main():
     ]
 
     if missing_columns:
+
         raise ValueError(
             f"Missing required columns: {missing_columns}"
         )
 
-    # Keep only required columns
-    selected_df = df.select(*required_columns)
+    print("Required columns are present.")
 
-    # --------------------------------------------------
-    # 1. PARTITIONED OUTPUT
-    # --------------------------------------------------
 
-    partition_output_path = (
-        f"{output_base}/partitioned"
-    )
+    # ------------------------------------------------------------
+    # CITY OUTPUT
+    # ------------------------------------------------------------
+
+    city_output = f"{output_base}/city"
 
     (
-        selected_df
+        df.select("city")
+        .dropDuplicates()
         .write
         .mode("overwrite")
-        .partitionBy("city", "state", "country")
         .option("header", "true")
-        .csv(partition_output_path)
+        .csv(city_output)
     )
 
-    print(
-        f"Partitioned output written to: "
-        f"{partition_output_path}"
+    print(f"City output written to: {city_output}")
+
+
+    # ------------------------------------------------------------
+    # STATE OUTPUT
+    # ------------------------------------------------------------
+
+    state_output = f"{output_base}/state"
+
+    (
+        df.select("state")
+        .dropDuplicates()
+        .write
+        .mode("overwrite")
+        .option("header", "true")
+        .csv(state_output)
     )
 
-    # --------------------------------------------------
-    # 2. THREE SEPARATE OUTPUT FILES
-    # --------------------------------------------------
+    print(f"State output written to: {state_output}")
 
-    # CITY
-    city_df = selected_df.select("city").distinct()
 
-    city_df.coalesce(1).write \
-        .mode("overwrite") \
-        .option("header", "true") \
-        .csv(f"{output_base}/city")
+    # ------------------------------------------------------------
+    # COUNTRY OUTPUT
+    # ------------------------------------------------------------
 
-    # STATE
-    state_df = selected_df.select("state").distinct()
+    country_output = f"{output_base}/country"
 
-    state_df.coalesce(1).write \
-        .mode("overwrite") \
-        .option("header", "true") \
-        .csv(f"{output_base}/state")
-
-    # COUNTRY
-    country_df = selected_df.select("country").distinct()
-
-    country_df.coalesce(1).write \
-        .mode("overwrite") \
-        .option("header", "true") \
-        .csv(f"{output_base}/country")
-
-    print(
-        f"Three outputs written under: {output_base}"
+    (
+        df.select("country")
+        .dropDuplicates()
+        .write
+        .mode("overwrite")
+        .option("header", "true")
+        .csv(country_output)
     )
+
+    print(f"Country output written to: {country_output}")
+
+
+    # ------------------------------------------------------------
+    # COMPLETE JOB
+    # ------------------------------------------------------------
 
     job.commit()
+
+    print("Glue job completed successfully.")
 
 
 if __name__ == "__main__":
