@@ -1,40 +1,36 @@
 import boto3
 import csv
-import urllib.parse
 import os
+import urllib.parse
 
 s3 = boto3.client("s3")
 glue = boto3.client("glue")
 
-REQUIRED_COLUMNS = ["city", "state", "country"]
+REQUIRED_COLUMNS = [
+    column.strip()
+    for column in os.environ.get(
+        "REQUIRED_COLUMNS",
+        "city,state,country"
+    ).split(",")
+    if column.strip()
+]
 
-GLUE_JOB_NAME = os.environ.get("GLUE_JOB_NAME")
-OUTPUT_PREFIX = "glue-output"
+GLUE_JOB_NAME = os.environ["GLUE_JOB_NAME"]
 
 
 def lambda_handler(event, context):
 
     print("Event:", event)
 
-    record = event["Records"][0]
-
-    bucket = record["s3"]["bucket"]["name"]
-
+    # 1. Get file details from S3 event
+    bucket = event["Records"][0]["s3"]["bucket"]["name"]
     key = urllib.parse.unquote_plus(
-        record["s3"]["object"]["key"]
+        event["Records"][0]["s3"]["object"]["key"]
     )
 
     print(f"Processing file: s3://{bucket}/{key}")
 
-    # Safety check
-    if not key.startswith("input/"):
-        print("File is outside input/ folder. Ignoring.")
-        return {
-            "statusCode": 200,
-            "body": "Ignored"
-        }
-
-    # Read file
+    # 2. Read file from S3
     response = s3.get_object(
         Bucket=bucket,
         Key=key
@@ -43,15 +39,12 @@ def lambda_handler(event, context):
     content = response["Body"].read().decode("utf-8").splitlines()
 
     reader = csv.reader(content)
-
-    headers = [
-        header.strip()
-        for header in next(reader)
-    ]
+    headers = next(reader)
 
     print("Headers:", headers)
+    print("Required columns:", REQUIRED_COLUMNS)
 
-    # Validate columns
+    # 3. Validate required columns
     missing_columns = [
         column
         for column in REQUIRED_COLUMNS
@@ -65,40 +58,23 @@ def lambda_handler(event, context):
 
     print("Columns are valid")
 
-    # Check Glue job name
-    if not GLUE_JOB_NAME:
-        raise Exception(
-            "GLUE_JOB_NAME environment variable is not configured"
-        )
-
-    print(f"Starting Glue job: {GLUE_JOB_NAME}")
-
-    # Start Glue
+    # 4. Trigger Glue job
     response = glue.start_job_run(
         JobName=GLUE_JOB_NAME,
         Arguments={
             "--input_bucket": bucket,
             "--input_key": key,
-            "--output_bucket": bucket,
-            "--output_prefix": OUTPUT_PREFIX,
-            "--required_columns": ",".join(REQUIRED_COLUMNS)
         }
     )
 
-    job_run_id = response["JobRunId"]
-
     print(
         f"Glue job triggered successfully. "
-        f"JobRunId: {job_run_id}"
+        f"Run ID: {response['JobRunId']}"
     )
 
     return {
         "statusCode": 200,
-        "body": {
-            "message": "Glue job triggered successfully",
-            "job_name": GLUE_JOB_NAME,
-            "job_run_id": job_run_id,
-            "input": f"s3://{bucket}/{key}",
-            "output": f"s3://{bucket}/{OUTPUT_PREFIX}/"
-        }
+        "message": "Glue job triggered successfully",
+        "jobRunId": response["JobRunId"],
+        "input": f"s3://{bucket}/{key}"
     }
