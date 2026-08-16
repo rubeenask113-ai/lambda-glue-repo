@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: AWS CloudFormation stack for an S3-triggered Lambda and Glue ETL pipeline.
+Description: S3 triggered Lambda and Glue ETL pipeline
 
 Parameters:
+
   LambdaCodeS3Bucket:
     Type: String
 
@@ -18,20 +19,29 @@ Parameters:
 
   RequiredColumns:
     Type: CommaDelimitedList
-    Default: id,name,city,state,country
+    Default: city,state,country
+
 
 Resources:
 
   DataBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: lambda-glue-stack-databucket
+      BucketName: lambda-glue-stack-databucket-xe1g4bjzxvsq
+
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt GlueEventProcessor.Arn
+
 
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
+
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
+
         Statement:
           - Effect: Allow
             Principal:
@@ -41,120 +51,207 @@ Resources:
               - sts:AssumeRole
 
       Policies:
+
         - PolicyName: LambdaExecutionPolicy
+
           PolicyDocument:
             Version: '2012-10-17'
+
             Statement:
 
               - Effect: Allow
+
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: arn:aws:logs:*:*:*
+
+                Resource:
+                  - arn:aws:logs:*:*:*
+
 
               - Effect: Allow
+
                 Action:
                   - s3:GetObject
                   - s3:GetObjectAcl
                   - s3:ListBucket
+
                 Resource:
                   - !GetAtt DataBucket.Arn
                   - !Sub '${DataBucket.Arn}/*'
 
+
               - Effect: Allow
+
                 Action:
                   - glue:StartJobRun
                   - glue:GetJob
                   - glue:GetJobRun
-                Resource: !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}'
+
+                Resource:
+                  - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}'
+
 
   GlueEventProcessor:
     Type: AWS::Lambda::Function
+
     Properties:
+
       Runtime: python3.11
+
       Handler: handler.lambda_handler
+
       Timeout: 300
+
       Role: !GetAtt LambdaExecutionRole.Arn
 
       Environment:
+
         Variables:
-          DATA_BUCKET: !Ref DataBucket
-          GLUE_JOB_NAME: !Ref GlueJobName
-          REQUIRED_COLUMNS: !Join [",", !Ref RequiredColumns]
+
+          DATA_BUCKET:
+            !Ref DataBucket
+
+          GLUE_JOB_NAME:
+            !Ref GlueJobName
+
+          REQUIRED_COLUMNS:
+            !Join [",", !Ref RequiredColumns]
 
       Code:
-        S3Bucket: !Ref LambdaCodeS3Bucket
-        S3Key: !Ref LambdaCodeS3Key
+
+        S3Bucket:
+          !Ref LambdaCodeS3Bucket
+
+        S3Key:
+          !Ref LambdaCodeS3Key
+
 
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
+
     Properties:
-      FunctionName: !Ref GlueEventProcessor
-      Action: lambda:InvokeFunction
-      Principal: s3.amazonaws.com
-      SourceArn: !GetAtt DataBucket.Arn
+
+      FunctionName:
+        !Ref GlueEventProcessor
+
+      Action:
+        lambda:InvokeFunction
+
+      Principal:
+        s3.amazonaws.com
+
+      SourceArn:
+        !GetAtt DataBucket.Arn
+
+      SourceAccount:
+        !Ref AWS::AccountId
+
 
   GlueJobRole:
     Type: AWS::IAM::Role
+
     Properties:
+
       AssumeRolePolicyDocument:
+
         Version: '2012-10-17'
+
         Statement:
+
           - Effect: Allow
+
             Principal:
               Service:
                 - glue.amazonaws.com
+
             Action:
               - sts:AssumeRole
 
+
       Policies:
+
         - PolicyName: GlueJobPolicy
+
           PolicyDocument:
+
             Version: '2012-10-17'
+
             Statement:
 
               - Effect: Allow
+
                 Action:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:ListBucket
+
                 Resource:
                   - !GetAtt DataBucket.Arn
                   - !Sub '${DataBucket.Arn}/*'
 
+
               - Effect: Allow
+
                 Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: arn:aws:logs:*:*:*
+
+                Resource:
+                  - arn:aws:logs:*:*:*
+
 
   LambdaToGlueJob:
     Type: AWS::Glue::Job
+
     Properties:
-      Name: !Ref GlueJobName
-      Role: !GetAtt GlueJobRole.Arn
+
+      Name:
+        !Ref GlueJobName
+
+      Role:
+        !GetAtt GlueJobRole.Arn
 
       Command:
+
         Name: glueetl
+
         PythonVersion: '3'
-        ScriptLocation: !Ref GlueJobScriptS3Uri
+
+        ScriptLocation:
+          !Ref GlueJobScriptS3Uri
 
       DefaultArguments:
-        --TempDir: !Sub 's3://${DataBucket}/temp/'
+
+        --TempDir:
+          !Sub 's3://${DataBucket}/temp/'
+
         --job-language: python
+
 
 Outputs:
 
   DataBucketName:
-    Description: Name of the S3 bucket that receives uploaded files.
-    Value: !Ref DataBucket
+
+    Description: S3 bucket receiving uploaded files
+
+    Value:
+      !Ref DataBucket
+
 
   LambdaFunctionArn:
-    Description: ARN of the Lambda function.
-    Value: !GetAtt GlueEventProcessor.Arn
+
+    Description: Lambda function ARN
+
+    Value:
+      !GetAtt GlueEventProcessor.Arn
+
 
   GlueJobNameOutput:
-    Description: Name of the AWS Glue job.
-    Value: !Ref GlueJobName
+
+    Description: Glue job name
+
+    Value:
+      !Ref GlueJobName
