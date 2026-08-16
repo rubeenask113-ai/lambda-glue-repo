@@ -30,8 +30,14 @@ Resources:
 
   DataBucket:
     Type: AWS::S3::Bucket
+
     Properties:
       BucketName: lambda-glue-stack-databucket
+
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt GlueEventProcessor.Arn
 
 
   # ============================================================
@@ -129,7 +135,6 @@ Resources:
 
       Role: !GetAtt LambdaExecutionRole.Arn
 
-
       Environment:
         Variables:
 
@@ -138,7 +143,6 @@ Resources:
           GLUE_JOB_NAME: !Ref GlueJobName
 
           REQUIRED_COLUMNS: !Join [",", !Ref RequiredColumns]
-
 
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
@@ -161,7 +165,7 @@ Resources:
 
       Principal: s3.amazonaws.com
 
-      SourceArn: !GetAtt DataBucket.Arn
+      SourceArn: !Sub 'arn:aws:s3:::lambda-glue-stack-databucket'
 
       SourceAccount: !Ref AWS::AccountId
 
@@ -199,7 +203,7 @@ Resources:
             Statement:
 
               # ==================================================
-              # 1. DATA BUCKET ACCESS
+              # DATA BUCKET ACCESS
               # ==================================================
 
               - Effect: Allow
@@ -215,9 +219,7 @@ Resources:
 
 
               # ==================================================
-              # 2. STAGING BUCKET ACCESS
-              #
-              # GitHub Actions uploads the Glue job script here.
+              # STAGING BUCKET ACCESS
               # ==================================================
 
               - Effect: Allow
@@ -233,7 +235,7 @@ Resources:
 
 
               # ==================================================
-              # 3. CLOUDWATCH LOGS
+              # CLOUDWATCH LOGS
               # ==================================================
 
               - Effect: Allow
@@ -259,7 +261,6 @@ Resources:
       Name: !Ref GlueJobName
 
       Role: !GetAtt GlueJobRole.Arn
-
 
       Command:
         Name: glueetl
