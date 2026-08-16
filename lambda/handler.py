@@ -13,16 +13,28 @@ OUTPUT_PREFIX = "glue-output"
 
 
 def lambda_handler(event, context):
+
     print("Event:", event)
 
     record = event["Records"][0]
 
     bucket = record["s3"]["bucket"]["name"]
-    key = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
+
+    key = urllib.parse.unquote_plus(
+        record["s3"]["object"]["key"]
+    )
 
     print(f"Processing file: s3://{bucket}/{key}")
 
-    # Read CSV from S3
+    # Safety check
+    if not key.startswith("input/"):
+        print("File is outside input/ folder. Ignoring.")
+        return {
+            "statusCode": 200,
+            "body": "Ignored"
+        }
+
+    # Read file
     response = s3.get_object(
         Bucket=bucket,
         Key=key
@@ -31,11 +43,15 @@ def lambda_handler(event, context):
     content = response["Body"].read().decode("utf-8").splitlines()
 
     reader = csv.reader(content)
-    headers = [header.strip() for header in next(reader)]
+
+    headers = [
+        header.strip()
+        for header in next(reader)
+    ]
 
     print("Headers:", headers)
 
-    # Validate required columns
+    # Validate columns
     missing_columns = [
         column
         for column in REQUIRED_COLUMNS
@@ -57,8 +73,8 @@ def lambda_handler(event, context):
 
     print(f"Starting Glue job: {GLUE_JOB_NAME}")
 
-    # Start Glue with all required arguments
-    glue_response = glue.start_job_run(
+    # Start Glue
+    response = glue.start_job_run(
         JobName=GLUE_JOB_NAME,
         Arguments={
             "--input_bucket": bucket,
@@ -69,7 +85,7 @@ def lambda_handler(event, context):
         }
     )
 
-    job_run_id = glue_response["JobRunId"]
+    job_run_id = response["JobRunId"]
 
     print(
         f"Glue job triggered successfully. "
