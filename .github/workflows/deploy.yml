@@ -14,7 +14,7 @@ permissions:
 env:
   AWS_REGION: us-east-1
   STAGING_BUCKET: lambda-glue-repo-staging-bucket
-  STACK_NAME: lambda-glue-stack
+  STACK_NAME: lambda-glue-tst
   LAMBDA_KEY: lambda/${{ github.sha }}.zip
   GLUE_KEY: glue/${{ github.sha }}-job.py
 
