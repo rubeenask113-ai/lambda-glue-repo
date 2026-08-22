@@ -15,7 +15,7 @@ Parameters:
 
   GlueJobName:
     Type: String
-    Default: lambda-glue-job
+    Default: lambda-glue-tst-job
 
   RequiredColumns:
     Type: CommaDelimitedList
@@ -67,7 +67,7 @@ Resources:
 
 
               # ------------------------------------------------
-              # S3 DATA BUCKET ACCESS
+              # TST S3 DATA BUCKET ACCESS
               # ------------------------------------------------
 
               - Effect: Allow
@@ -78,8 +78,8 @@ Resources:
                   - s3:ListBucket
 
                 Resource:
-                  - arn:aws:s3:::lambda-glue-stack-databucket
-                  - arn:aws:s3:::lambda-glue-stack-databucket/*
+                  - arn:aws:s3:::lambda-glue-tst-databucket
+                  - arn:aws:s3:::lambda-glue-tst-databucket/*
 
 
               # ------------------------------------------------
@@ -117,7 +117,7 @@ Resources:
       Environment:
         Variables:
 
-          DATA_BUCKET: lambda-glue-stack-databucket
+          DATA_BUCKET: lambda-glue-tst-databucket
 
           GLUE_JOB_NAME: !Ref GlueJobName
 
@@ -144,13 +144,13 @@ Resources:
 
       Principal: s3.amazonaws.com
 
-      SourceArn: arn:aws:s3:::lambda-glue-stack-databucket
+      SourceArn: arn:aws:s3:::lambda-glue-tst-databucket
 
       SourceAccount: !Ref AWS::AccountId
 
 
   # ============================================================
-  # S3 DATA BUCKET
+  # TST S3 DATA BUCKET
   # ============================================================
 
   DataBucket:
@@ -161,7 +161,7 @@ Resources:
 
     Properties:
 
-      BucketName: lambda-glue-stack-databucket
+      BucketName: lambda-glue-tst-databucket
 
       NotificationConfiguration:
 
@@ -201,7 +201,7 @@ Resources:
             Statement:
 
               # ==================================================
-              # DATA BUCKET ACCESS
+              # TST DATA BUCKET ACCESS
               # ==================================================
 
               - Effect: Allow
@@ -212,8 +212,8 @@ Resources:
                   - s3:ListBucket
 
                 Resource:
-                  - arn:aws:s3:::lambda-glue-stack-databucket
-                  - arn:aws:s3:::lambda-glue-stack-databucket/*
+                  - arn:aws:s3:::lambda-glue-tst-databucket
+                  - arn:aws:s3:::lambda-glue-tst-databucket/*
 
 
               # ==================================================
@@ -271,15 +271,15 @@ Resources:
 
       DefaultArguments:
 
-        --TempDir: s3://lambda-glue-stack-databucket/temp/
+        --TempDir: s3://lambda-glue-tst-databucket/temp/
 
         --job-language: python
 
-        --input_bucket: lambda-glue-stack-databucket
+        --input_bucket: lambda-glue-tst-databucket
 
         --input_key: input/location_data.csv
 
-        --output_bucket: lambda-glue-stack-databucket
+        --output_bucket: lambda-glue-tst-databucket
 
         --output_prefix: glue-output
 
@@ -293,15 +293,15 @@ Resources:
 Outputs:
 
   DataBucketName:
-    Description: Name of the S3 bucket that receives uploaded files.
+    Description: Name of the TST S3 bucket that receives uploaded files.
     Value: !Ref DataBucket
 
 
   LambdaFunctionArn:
-    Description: ARN of the Lambda function.
+    Description: ARN of the TST Lambda function.
     Value: !GetAtt GlueEventProcessor.Arn
 
 
   GlueJobNameOutput:
-    Description: Name of the AWS Glue job.
+    Description: Name of the TST AWS Glue job.
     Value: !Ref GlueJobName
