@@ -71,6 +71,8 @@ jobs:
 
       - name: Verify AWS identity
         run: |
+          set -euo pipefail
+
           aws sts get-caller-identity
 
           echo "Expected AWS account: 040066346167"
@@ -83,6 +85,8 @@ jobs:
 
       - name: Validate CloudFormation template
         run: |
+          set -euo pipefail
+
           aws cloudformation validate-template \
             --template-body file://cloudformation/template.yaml \
             --region "$AWS_REGION"
@@ -107,6 +111,9 @@ jobs:
 
       # ============================================================
       # STEP 7: CREATE TST STAGING BUCKET IF MISSING
+      #
+      # IMPORTANT:
+      # us-east-1 does NOT accept LocationConstraint=us-east-1.
       # ============================================================
 
       - name: Create TST staging bucket if missing
@@ -125,10 +132,21 @@ jobs:
             echo "Creating staging bucket:"
             echo "$STAGING_BUCKET"
 
-            aws s3api create-bucket \
-              --bucket "$STAGING_BUCKET" \
-              --region "$AWS_REGION" \
-              --create-bucket-configuration LocationConstraint="$AWS_REGION"
+            if [ "$AWS_REGION" = "us-east-1" ]; then
+
+              aws s3api create-bucket \
+                --bucket "$STAGING_BUCKET" \
+                --region "$AWS_REGION"
+
+            else
+
+              aws s3api create-bucket \
+                --bucket "$STAGING_BUCKET" \
+                --region "$AWS_REGION" \
+                --create-bucket-configuration \
+                  LocationConstraint="$AWS_REGION"
+
+            fi
 
           fi
 
