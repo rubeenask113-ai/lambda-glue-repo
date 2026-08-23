@@ -71,12 +71,10 @@ Resources:
               # ------------------------------------------------
 
               - Effect: Allow
-
                 Action:
                   - s3:GetObject
                   - s3:GetObjectAcl
                   - s3:ListBucket
-
                 Resource:
                   - arn:aws:s3:::lambda-glue-tst-databucket
                   - arn:aws:s3:::lambda-glue-tst-databucket/*
@@ -87,12 +85,10 @@ Resources:
               # ------------------------------------------------
 
               - Effect: Allow
-
                 Action:
                   - glue:StartJobRun
                   - glue:GetJob
                   - glue:GetJobRun
-
                 Resource:
                   - !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:job/${GlueJobName}'
 
@@ -125,7 +121,6 @@ Resources:
 
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
-
         S3Key: !Ref LambdaCodeS3Key
 
 
@@ -217,7 +212,7 @@ Resources:
 
 
               # ==================================================
-              # STAGING BUCKET ACCESS
+              # TST STAGING BUCKET ACCESS
               # ==================================================
 
               - Effect: Allow
@@ -228,8 +223,8 @@ Resources:
                   - s3:ListBucket
 
                 Resource:
-                  - arn:aws:s3:::lambda-glue-repo-staging-bucket
-                  - arn:aws:s3:::lambda-glue-repo-staging-bucket/*
+                  - arn:aws:s3:::lambda-glue-tst-staging-040066346167
+                  - arn:aws:s3:::lambda-glue-tst-staging-040066346167/*
 
 
               # ==================================================
