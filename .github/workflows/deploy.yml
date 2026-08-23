@@ -3,8 +3,7 @@ name: Deploy Lambda Glue Pipeline
 on:
   push:
     branches:
-      - main
-      - develop
+      - tst
   workflow_dispatch:
 
 permissions:
@@ -13,7 +12,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  STAGING_BUCKET: lambda-glue-repo-staging-bucket
+  STAGING_BUCKET: lambda-glue-tst-staging-040066346167
   STACK_NAME: lambda-glue-tst
   LAMBDA_KEY: lambda/${{ github.sha }}.zip
   GLUE_KEY: glue/${{ github.sha }}-job.py
@@ -41,6 +40,7 @@ jobs:
         with:
           script: |
             const token = await core.getIDToken('sts.amazonaws.com');
+
             const payload = JSON.parse(
               Buffer.from(token.split('.')[1], 'base64').toString()
             );
@@ -53,66 +53,117 @@ jobs:
 
 
       # ============================================================
-      # STEP 3: OIDC AUTHENTICATION
+      # STEP 3: CONFIGURE AWS CREDENTIALS
+      # Shiva's AWS account
       # ============================================================
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::039473174687:role/GITAWSrole
-          role-session-name: github-actions
+          role-to-assume: arn:aws:iam::040066346167:role/lambda-glue-dev-github-actions-deploy
+          role-session-name: github-actions-rubeena-tst
           aws-region: ${{ env.AWS_REGION }}
 
 
       # ============================================================
-      # STEP 4: VALIDATE CLOUDFORMATION
+      # STEP 4: VERIFY AWS ACCOUNT
+      # ============================================================
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+          echo "Expected AWS account: 040066346167"
+          echo "Expected AWS region: $AWS_REGION"
+
+
+      # ============================================================
+      # STEP 5: VALIDATE CLOUDFORMATION
       # ============================================================
 
       - name: Validate CloudFormation template
         run: |
           aws cloudformation validate-template \
-            --template-body file://cloudformation/template.yaml
+            --template-body file://cloudformation/template.yaml \
+            --region "$AWS_REGION"
 
 
       # ============================================================
-      # STEP 5: PACKAGE LAMBDA
+      # STEP 6: PACKAGE LAMBDA
       # ============================================================
 
       - name: Package Lambda
         run: |
+          set -euo pipefail
+
+          rm -f lambda-package.zip
+
           cd lambda
           zip -r ../lambda-package.zip .
+          cd ..
+
+          ls -lh lambda-package.zip
 
 
       # ============================================================
-      # STEP 6: CREATE STAGING BUCKET IF MISSING
+      # STEP 7: CREATE TST STAGING BUCKET IF MISSING
       # ============================================================
 
-      - name: Create staging bucket if missing
+      - name: Create TST staging bucket if missing
         run: |
-          if aws s3api head-bucket --bucket "$STAGING_BUCKET" 2>/dev/null; then
-            echo "Bucket exists"
+          set -euo pipefail
+
+          if aws s3api head-bucket \
+            --bucket "$STAGING_BUCKET" \
+            --region "$AWS_REGION" 2>/dev/null; then
+
+            echo "Staging bucket already exists:"
+            echo "$STAGING_BUCKET"
+
           else
-            aws s3api create-bucket --bucket "$STAGING_BUCKET"
+
+            echo "Creating staging bucket:"
+            echo "$STAGING_BUCKET"
+
+            aws s3api create-bucket \
+              --bucket "$STAGING_BUCKET" \
+              --region "$AWS_REGION" \
+              --create-bucket-configuration LocationConstraint="$AWS_REGION"
+
           fi
 
 
       # ============================================================
-      # STEP 7: UPLOAD DEPLOYMENT ARTIFACTS
+      # STEP 8: UPLOAD DEPLOYMENT ARTIFACTS
       # ============================================================
 
       - name: Upload deployment artifacts
         run: |
-          aws s3 cp lambda-package.zip "s3://$STAGING_BUCKET/$LAMBDA_KEY"
-          aws s3 cp glue/job.py "s3://$STAGING_BUCKET/$GLUE_KEY"
+          set -euo pipefail
+
+          aws s3 cp \
+            lambda-package.zip \
+            "s3://${STAGING_BUCKET}/${LAMBDA_KEY}"
+
+          aws s3 cp \
+            glue/job.py \
+            "s3://${STAGING_BUCKET}/${GLUE_KEY}"
+
+          echo "Lambda uploaded:"
+          echo "s3://${STAGING_BUCKET}/${LAMBDA_KEY}"
+
+          echo "Glue script uploaded:"
+          echo "s3://${STAGING_BUCKET}/${GLUE_KEY}"
 
 
       # ============================================================
-      # STEP 8: DEPLOY CLOUDFORMATION STACK
+      # STEP 9: DEPLOY TST CLOUDFORMATION STACK
       # ============================================================
 
-      - name: Deploy CloudFormation stack
+      - name: Deploy TST CloudFormation stack
         run: |
+          set -euo pipefail
+
           aws cloudformation deploy \
             --stack-name "$STACK_NAME" \
             --template-file cloudformation/template.yaml \
@@ -121,16 +172,18 @@ jobs:
             --parameter-overrides \
               LambdaCodeS3Bucket="$STAGING_BUCKET" \
               LambdaCodeS3Key="$LAMBDA_KEY" \
-              GlueJobScriptS3Uri="s3://$STAGING_BUCKET/$GLUE_KEY" \
+              GlueJobScriptS3Uri="s3://${STAGING_BUCKET}/${GLUE_KEY}" \
               RequiredColumns="city,state,country"
 
 
       # ============================================================
-      # STEP 9: SHOW STACK OUTPUTS
+      # STEP 10: SHOW TST STACK OUTPUTS
       # ============================================================
 
-      - name: Show stack outputs
+      - name: Show TST stack outputs
         run: |
+          set -euo pipefail
+
           aws cloudformation describe-stacks \
             --stack-name "$STACK_NAME" \
             --region "$AWS_REGION" \
